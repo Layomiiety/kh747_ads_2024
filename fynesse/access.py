@@ -17,3 +17,17 @@ def data():
 
 def hello_world():
   print("Hello from the data science library!")
+
+def download_price_paid_data(start_year, end_year):
+   # Base URL where the dataset is stored 
+  base_url = "http://prod.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com"
+  # File name with placeholders
+  file_name = "/pp-<year>-part<part>.csv"
+  for year in range(start_year, end_year+1):
+    print ("Downloading data for year: " + str(year))
+    for part in range(1,3):
+      url = base_url + file_name.replace("<year>", str(year)).replace("<part>", str(part))
+      response = requests.get(url)
+      if response.status_code == 200:
+        with open("." + file_name.replace("<year>", str(year)).replace("<part>", str(part)), "wb") as file:
+          file.write(response.content)
