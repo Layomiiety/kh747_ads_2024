@@ -1,5 +1,11 @@
 # This file contains code for suporting addressing questions in the data
-
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import osmnx as ox
+import pymysql
+import pandas as pd
+import seaborn as sns
+from rapidfuzz import process, fuzz
 """# Here are some of the imports we might expect 
 import sklearn.model_selection  as ms
 import sklearn.linear_model as lm
@@ -16,3 +22,95 @@ import scipy.stats"""
 
 """Address a particular question that arises from the data"""
 
+def address_question_buildings_with_address(center_point):
+    latitude_offset = 0.009
+    longitude_offset = 0.015
+
+    north = center_point[0] + latitude_offset
+    south = center_point[0] - latitude_offset
+    east = center_point[1] + longitude_offset
+    west = center_point[1] - longitude_offset
+    # Define the tags for buildings
+    tags = {'building': True}
+
+    # Retrieve building geometries within the bounding box
+    buildings = ox.geometries_from_bbox(north, south, east, west, tags)
+
+    # Filter only buildings that have a polygon geometry (i.e., actual building footprints)
+    buildings = buildings[buildings.geometry.type == 'Polygon']
+
+    # Calculate area for each building in square meters
+    buildings = buildings.to_crs(epsg=3857)  # Project to a metric system (meters)
+    buildings['area_sqm'] = buildings['geometry'].area
+
+    # Filter for buildings with full address (contains 'addr:housenumber', 'addr:street', 'addr:postcode')
+    address_columns = ['addr:housenumber', 'addr:street', 'addr:postcode']
+    return buildings,buildings.dropna(subset=address_columns)
+
+def address_question_address_matching(pp_data,buildings_with_address):
+    # For PP Data: Combine primary and secondary address fields to create a standardized housenumber
+    pp_data['housenumber'] = pp_data['primary_addressable_object_name'].fillna('') + ' ' + pp_data['secondary_addressable_object_name'].fillna('')
+    pp_data['housenumber'] = pp_data['housenumber'].str.strip()  # Remove extra whitespace
+    pp_data['address_key'] = pp_data['housenumber'] + ' ' + pp_data['street'] + ' ' + pp_data['postcode']
+    pp_data['address_key'] = pp_data['address_key'].str.lower().str.replace(r'\s+', ' ', regex=True)
+
+    # For OSM Data: Combine address fields for a standardized address key
+    buildings_with_address['address_key'] = buildings_with_address['addr:housenumber'].fillna('') + ' ' + buildings_with_address['addr:street'].fillna('') + ' ' + buildings_with_address['addr:postcode'].fillna('')
+    buildings_with_address['address_key'] = buildings_with_address['address_key'].str.lower().str.replace(r'\s+', ' ', regex=True)
+
+    # Merge DataFrames on address_key for exact matches
+    merged_exact = pd.merge(pp_data, buildings_with_address, on='address_key', how='inner', suffixes=('_pp', '_osm'))
+    non_matched_pp = pp_data[~pp_data['address_key'].isin(merged_exact['address_key'])]
+    joined_data = non_matched_pp.merge(buildings_with_address, left_on='postcode', right_on='addr:postcode', suffixes=('_pp', '_osm'))
+    fuzzy_matches = fuzzy_match_on_joined_data(joined_data)
+    final_merged = pd.concat([merged_exact, fuzzy_matches], ignore_index=True)
+    return final_merged
+# Function to perform fuzzy matching on joined data
+def fuzzy_match_on_joined_data(df, threshold=95):
+    results = []
+    for _, row in df.iterrows():
+        # Use rapidfuzz to find the best fuzzy match for address_key within the joined subset
+        match = process.extractOne(row['address_key_pp'], df['address_key_osm'], scorer=fuzz.token_sort_ratio)
+        
+        # Check if the match meets the similarity threshold
+        if match and match[1] >= threshold:
+            matched_row = df[df['address_key_osm'] == match[0]].copy()
+            matched_row['fuzzy_match_score'] = match[1]  # Track the match score
+            matched_row['original_row_index'] = row.name  # Track original row index for later merging
+            matched_row['pp_data_row'] = row  # Store the original pp_data row information
+            results.append(matched_row)
+    
+    # Combine all matched rows into a single DataFrame
+    return pd.concat(results, ignore_index=True) if results else pd.DataFrame()
+
+def visualize_map(buildings,buildings_with_address, final_merged):
+   # Step 1: Identify matched and unmatched buildings
+    matched_buildings = buildings_with_address[buildings_with_address['address_key'].isin(final_merged['address_key'])]
+    unmatched_buildings = buildings_with_address[~buildings_with_address['address_key'].isin(final_merged['address_key'])]
+
+    # Step 2: Plot the buildings in the Cambridge area
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Plot all buildings without full addresses in light gray
+    buildings.plot(ax=ax, color='lightgray', edgecolor='black', label='Buildings without Full Address')
+
+    # Plot matched buildings (green)
+    matched_buildings.plot(ax=ax, color='green', edgecolor='black', label='Matched Buildings')
+
+    # Plot unmatched buildings (red)
+    unmatched_buildings.plot(ax=ax, color='red', edgecolor='black', label='Unmatched Buildings')
+
+    # Customize the plot
+    ax.set_title("OSM Buildings in Cambridge Area - Address Matches and Non-Matches")
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def find_price_area_correlation(final_merged):
+    # Filter the dataset to ensure price and area data are available
+    filtered_data = final_merged.dropna(subset=['price', 'area_sqm'])
+    # Calculate the correlation coefficient between price and area
+    correlation = filtered_data['price'].corr(filtered_data['area_sqm'])
+    return correlation
