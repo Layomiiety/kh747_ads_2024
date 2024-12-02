@@ -58,6 +58,9 @@ def get_buildings_with_address(center_point):
     buildings = buildings.to_crs(epsg=3857)  # Project to a metric system (meters)
     buildings['area_sqm'] = buildings['geometry'].area
 
+    # Reproject back to EPSG 4326 for plotting with latitude/longitude
+    buildings = buildings.to_crs(epsg=4326)
+
     # Filter for buildings with full address (contains 'addr:housenumber', 'addr:street', 'addr:postcode')
     address_columns = ['addr:housenumber', 'addr:street', 'addr:postcode']
     return buildings,buildings.dropna(subset=address_columns)
