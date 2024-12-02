@@ -1,5 +1,6 @@
 from .config import *
 import requests
+from sqlalchemy import create_engine
 
 """These are the types of import we might expect in this file
 import httplib2
@@ -46,14 +47,10 @@ def create_connection(user, password, host, database, port=3306):
     """
     conn = None
     try:
-        conn = pymysql.connect(user=user,
-                               passwd=password,
-                               host=host,
-                               port=port,
-                               local_infile=1,
-                               db=database
-                               )
+        engine = create_engine(
+        f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
+    )
         print(f"Connection established!")
     except Exception as e:
         print(f"Error connecting to the MariaDB Server: {e}")
-    return conn
+    return engine
