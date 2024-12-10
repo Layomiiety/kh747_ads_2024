@@ -5,9 +5,7 @@ from . import access
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import osmnx as ox
-import pymysql
 import pandas as pd
-import seaborn as sns
 from rapidfuzz import process, fuzz
 """These are the types of import we might expect in this file
 import pandas
@@ -101,35 +99,3 @@ def fuzzy_match_on_joined_data(df, threshold=95):
     
     # Combine all matched rows into a single DataFrame
     return pd.concat(results, ignore_index=True) if results else pd.DataFrame()
-
-def visualize_map(buildings,buildings_with_address, final_merged):
-   # Step 1: Identify matched and unmatched buildings
-    matched_buildings = buildings_with_address[buildings_with_address['address_key'].isin(final_merged['address_key'])]
-    unmatched_buildings = buildings_with_address[~buildings_with_address['address_key'].isin(final_merged['address_key'])]
-
-    # Step 2: Plot the buildings in the Cambridge area
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    # Plot all buildings without full addresses in light gray
-    buildings.plot(ax=ax, color='lightgray', edgecolor='black', label='Buildings without Full Address')
-
-    # Plot matched buildings (green)
-    matched_buildings.plot(ax=ax, color='green', edgecolor='black', label='Matched Buildings')
-
-    # Plot unmatched buildings (red)
-    unmatched_buildings.plot(ax=ax, color='red', edgecolor='black', label='Unmatched Buildings')
-
-    # Customize the plot
-    ax.set_title("OSM Buildings in Cambridge Area - Address Matches and Non-Matches")
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-def find_price_area_correlation(final_merged):
-    # Filter the dataset to ensure price and area data are available
-    filtered_data = final_merged.dropna(subset=['price', 'area_sqm'])
-    # Calculate the correlation coefficient between price and area
-    correlation = filtered_data['price'].corr(filtered_data['area_sqm'])
-    return correlation
